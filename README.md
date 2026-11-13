@@ -189,6 +189,19 @@ assert_eq!(file.decoded().as_ref(), b"\x00\x01\x02\x03\x04\x05");
 assert_eq!(file.decoded_len(), 6);
 let (_, problems) = file.decoded_checked();
 assert!(problems.contains(DecodeProblems::MALFORMED_TRANSFER_ENCODING));
+
+// A large attachment can be read under a byte budget instead: only the
+// prefix that fits is decoded, so the body is never expanded whole.
+let limited = file.decoded_with_limit(4);
+assert_eq!(limited.bytes.as_ref(), b"\x00\x01\x02\x03");
+assert!(limited.truncated);
+assert!(limited.problems.contains(DecodeProblems::TRUNCATED));
+
+// The text counterpart cuts at a character boundary, so UTF-8 and other
+// charset sequences are never split.
+let limited_text = text.text_with_limit(4).expect("a text part");
+assert_eq!(limited_text.text.as_ref(), "Café");
+assert!(limited_text.truncated);
 ```
 
 ### Walk the MIME structure

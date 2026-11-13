@@ -1,0 +1,22 @@
+From: Carol <carol@example.com>
+Subject: Bounded nested rfc822
+Content-Type: multipart/mixed; boundary="o"
+
+--o
+Content-Type: message/rfc822
+Content-Transfer-Encoding: base64
+
+U3ViamVjdDogaW5uZXINCkNvbnRlbnQtVHlwZTogbXVsdGlwYXJ0L2FsdGVybmF0aXZlOyBib3Vu
+ZGFyeT0iaSINCg0KLS1pDQpDb250ZW50LVR5cGU6IHRleHQvcGxhaW47IGNoYXJzZXQ9dXRmLTgN
+CkNvbnRlbnQtVHJhbnNmZXItRW5jb2Rpbmc6IGJhc2U2NA0KDQpUbVZ6ZEdWa0lIQmhlV3h2WVdR
+Z2NtVndaV0YwWldRZ1ptOXlJR3hsYm1kMGFDNGdUbVZ6ZEdWa0lIQmhlV3h2WVdRZ2NtVndaV0Yw
+ClpXUWdabTl5SUd4bGJtZDBhQzRnVG1WemRHVmtJSEJoZVd4dllXUWdjbVZ3WldGMFpXUWdabTl5
+SUd4bGJtZDBhQzRnVG1WemRHVmsKSUhCaGVXeHZZV1FnY21Wd1pXRjBaV1FnWm05eUlHeGxibWQw
+YUM0Z1RtVnpkR1ZrSUhCaGVXeHZZV1FnY21Wd1pXRjBaV1FnWm05eQpJR3hsYm1kMGFDNGdUbVZ6
+ZEdWa0lIQmhlV3h2WVdRZ2NtVndaV0YwWldRZ1ptOXlJR3hsYm1kMGFDNGcKDQotLWktLQ0K
+
+--o
+Content-Type: text/plain
+
+outer tail
+--o--

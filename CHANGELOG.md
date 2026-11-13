@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file. This projec
 
 ## [1.0.1] - 2026-11-02
 
+### Added
+- Bounded body decoding for large attachments: `MessagePart::decoded_with_limit()` and `MessagePart::text_with_limit()` transfer-decode at most the prefix that fits a byte budget, so a large body is never expanded whole. They return `LimitedBytes` and `LimitedText` with the truncated prefix, a `truncated` flag and the `DecodeProblems` of the prefix; `DecodeProblems::TRUNCATED` marks the cut. `text_with_limit()` ends on a character boundary and never breaks UTF-8 or another charset's multi-byte sequence. `decoded()`, `text()` and the other full-decode accessors are unchanged.
+
 ### Fixed
 - A parameter value on a folded line after `=` was read as a new parameter name, losing `name`, `filename` and `boundary` (#165).
 

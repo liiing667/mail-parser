@@ -26,7 +26,10 @@ const _: () = assert!(DENSITY_COUNT_CHUNK <= u8::MAX as usize);
 /// Bodies are decoded on access: [`MessagePart::decoded`] for the transfer
 /// encoding, [`MessagePart::text`] for text parts (transfer encoding and
 /// charset), [`MessagePart::text_prefix`] and [`MessagePart::decoded_len`]
-/// to avoid decoding the whole body.
+/// to avoid decoding the whole body, and
+/// [`MessagePart::decoded_with_limit`] and
+/// [`MessagePart::text_with_limit`] to decode only a prefix that fits a byte
+/// budget.
 #[derive(Clone, Copy)]
 pub struct MessagePart<'m> {
     ctx: Ctx<'m>,
@@ -167,8 +170,12 @@ impl DecodeProblems {
     /// U+FFFD. For UTF-7 also: 8-bit bytes were read as Latin-1, or an
     /// unterminated shift sequence at the end was dropped.
     pub const MALFORMED_CHARSET: DecodeProblems = DecodeProblems(1 << 3);
+    /// The body did not fit the byte budget of a bounded decode
+    /// ([`MessagePart::decoded_with_limit`] or
+    /// [`MessagePart::text_with_limit`]): only a prefix was returned.
+    pub const TRUNCATED: DecodeProblems = DecodeProblems(1 << 4);
 
-    pub(crate) const NAMES: [(DecodeProblems, &'static str); 4] = [
+    pub(crate) const NAMES: [(DecodeProblems, &'static str); 5] = [
         (
             DecodeProblems::MALFORMED_TRANSFER_ENCODING,
             "malformed_transfer_encoding",
@@ -179,7 +186,42 @@ impl DecodeProblems {
         ),
         (DecodeProblems::UNKNOWN_CHARSET, "unknown_charset"),
         (DecodeProblems::MALFORMED_CHARSET, "malformed_charset"),
+        (DecodeProblems::TRUNCATED, "truncated"),
     ];
+}
+
+/// The result of a bounded transfer decode
+/// ([`MessagePart::decoded_with_limit`]): a prefix that fits a byte budget,
+/// whether the body was cut, and the problems found while decoding.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LimitedBytes<'x> {
+    /// The transfer-decoded prefix, at most `max_bytes` bytes long.
+    pub bytes: Cow<'x, [u8]>,
+    /// The body had more transfer-decoded bytes than the budget: `bytes` is
+    /// a prefix and [`LimitedBytes::problems`] contains
+    /// [`DecodeProblems::TRUNCATED`].
+    pub truncated: bool,
+    /// The problems found while decoding the prefix, including
+    /// [`DecodeProblems::TRUNCATED`] when the body was cut.
+    pub problems: DecodeProblems,
+}
+
+/// The result of a bounded text decode
+/// ([`MessagePart::text_with_limit`]): a prefix that fits a byte budget and
+/// ends on a character boundary, whether the body was cut, and the problems
+/// found while decoding.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LimitedText<'x> {
+    /// The decoded prefix: transfer-decoded, converted from the charset, at
+    /// most `max_bytes` bytes long, and cut at
+    /// [`str::floor_char_boundary`] so it never splits a character.
+    pub text: Cow<'x, str>,
+    /// The body had more decoded text than the budget: `text` is a prefix
+    /// and [`LimitedText::problems`] contains [`DecodeProblems::TRUNCATED`].
+    pub truncated: bool,
+    /// The problems found while decoding the prefix, including
+    /// [`DecodeProblems::TRUNCATED`] when the body was cut.
+    pub problems: DecodeProblems,
 }
 
 impl PartFlags {
@@ -557,6 +599,45 @@ impl<'m> MessagePart<'m> {
         (decoded, problems)
     }
 
+    /// A transfer-decoded prefix bounded by `max_bytes`, for bodies that may
+    /// be too large to decode whole: unlike [`MessagePart::decoded`], only
+    /// the prefix whose decoded length fits the budget is decoded, so the
+    /// work and the allocation stay proportional to `max_bytes`.
+    ///
+    /// The returned [`LimitedBytes::bytes`] is at most `max_bytes` long. When
+    /// the full body would not fit, [`LimitedBytes::truncated`] is true and
+    /// the problems contain [`DecodeProblems::TRUNCATED`]; the prefix still
+    /// reports the malformed transfer encoding found inside it. An unknown
+    /// Content-Transfer-Encoding is reported like in
+    /// [`MessagePart::decoded_checked`], and the bytes are left as written.
+    ///
+    /// A budget of zero returns an empty prefix, truncated when the body is
+    /// not empty. [`MessagePart::decoded`] and
+    /// [`MessagePart::decoded_checked`] are unchanged and still decode whole
+    /// bodies.
+    pub fn decoded_with_limit(&self, max_bytes: usize) -> LimitedBytes<'m> {
+        let decoders::BoundedBytes {
+            bytes,
+            truncated,
+            malformed,
+        } = decoders::bounded_transfer(self.raw_body(), self.entry.encoding, max_bytes);
+        let mut problems = DecodeProblems::default();
+        if malformed {
+            problems |= DecodeProblems::MALFORMED_TRANSFER_ENCODING;
+        }
+        if !self.has_known_transfer_encoding() {
+            problems |= DecodeProblems::UNKNOWN_TRANSFER_ENCODING;
+        }
+        if truncated {
+            problems |= DecodeProblems::TRUNCATED;
+        }
+        LimitedBytes {
+            bytes,
+            truncated,
+            problems,
+        }
+    }
+
     /// False when the part declares a Content-Transfer-Encoding other than
     /// `7bit`, `8bit`, `binary`, `base64` or `quoted-printable`, the
     /// condition [`DecodeProblems::UNKNOWN_TRANSFER_ENCODING`] reports,
@@ -613,6 +694,62 @@ impl<'m> MessagePart<'m> {
             problems |= DecodeProblems::MALFORMED_CHARSET;
         }
         Some((text, problems))
+    }
+
+    /// A bounded version of [`MessagePart::text`]: the text of a text or
+    /// HTML part cut at `max_bytes`, decoding only the prefix the budget
+    /// allows so a large body is never expanded whole. `None` for other
+    /// parts.
+    ///
+    /// The returned [`LimitedText::text`] is at most `max_bytes` long and is
+    /// cut at [`str::floor_char_boundary`], so it never breaks a UTF-8
+    /// character or a multi-byte sequence of the part's charset: a byte
+    /// sequence cut in half is left out rather than turned into U+FFFD.
+    /// When the full text would not fit, [`LimitedText::truncated`] is true
+    /// and the problems contain [`DecodeProblems::TRUNCATED`]. The other
+    /// problems are those of [`MessagePart::text_checked`], detected on the
+    /// decoded prefix; an unknown charset is reported even when the body is
+    /// truncated.
+    ///
+    /// A budget of zero returns an empty prefix, truncated when the body is
+    /// not empty. [`MessagePart::text`] and [`MessagePart::text_checked`]
+    /// are unchanged and still decode whole bodies.
+    pub fn text_with_limit(&self, max_bytes: usize) -> Option<LimitedText<'m>> {
+        if !self.is_text() {
+            return None;
+        }
+        let charset = self.text_charset();
+        let decoders::BoundedText {
+            text,
+            truncated,
+            malformed_transfer,
+            malformed_charset,
+        } = decoders::bounded_text(self.raw_body(), self.entry.encoding, charset, max_bytes);
+        let mut problems = DecodeProblems::default();
+        if malformed_transfer {
+            problems |= DecodeProblems::MALFORMED_TRANSFER_ENCODING;
+        }
+        if !self.has_known_transfer_encoding() {
+            problems |= DecodeProblems::UNKNOWN_TRANSFER_ENCODING;
+        }
+        if self
+            .charset()
+            .is_some_and(|label| Charset::from_label(label.as_bytes()).is_none())
+            || !charset.is_supported()
+        {
+            problems |= DecodeProblems::UNKNOWN_CHARSET;
+        }
+        if malformed_charset {
+            problems |= DecodeProblems::MALFORMED_CHARSET;
+        }
+        if truncated {
+            problems |= DecodeProblems::TRUNCATED;
+        }
+        Some(LimitedText {
+            text,
+            truncated,
+            problems,
+        })
     }
 
     /// The first `max_chars` characters of [`MessagePart::text`], decoding

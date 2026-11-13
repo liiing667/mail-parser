@@ -17,7 +17,9 @@ pub use address::{Address, AddressList, AddressRun, Group, Mailbox};
 pub use content_type::ContentType;
 pub use headers::{Header, HeaderIter, HeaderValue, Headers, NamedHeaders, TextList};
 pub use message::{Message, MessageRef, Source};
-pub use part::{DecodeProblems, MessagePart, PartFlags, PartKind, PartRole};
+pub use part::{
+    DecodeProblems, LimitedBytes, LimitedText, MessagePart, PartFlags, PartKind, PartRole,
+};
 pub use received::{Greeting, Host, Protocol, Received, TlsVersion};
 
 use crate::store::{Blank, MessageData, MessageEntry, MessageId, PartEntry, PartId, Span, Str};

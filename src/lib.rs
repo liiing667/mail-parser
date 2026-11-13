@@ -32,7 +32,10 @@
 //! - Bodies: [`MessagePart::decoded`], [`MessagePart::text`],
 //!   [`MessagePart::text_prefix`] and [`MessagePart::decoded_len`];
 //!   [`MessagePart::decoded_checked`] and [`MessagePart::text_checked`]
-//!   also report decoding problems.
+//!   also report decoding problems, and
+//!   [`MessagePart::decoded_with_limit`] and
+//!   [`MessagePart::text_with_limit`] decode only a prefix that fits a byte
+//!   budget.
 //! - Header fields: [`Headers`] with typed getters, [`Header::raw_name`]
 //!   and [`Header::raw_value`] as written, [`Header::parse_as`] to parse a
 //!   field in another form, and [`HeaderForm::parse`] for values on their
@@ -83,8 +86,9 @@ pub use parser::MessageParser;
 pub use store::{MessageBuffers, MessageId, PartId};
 pub use view::{
     Address, AddressList, AddressRun, ContentType, DecodeProblems, Greeting, Group, Header,
-    HeaderIter, HeaderValue, Headers, Host, Mailbox, Message, MessagePart, MessageRef,
-    NamedHeaders, PartFlags, PartKind, PartRole, Protocol, Received, Source, TextList, TlsVersion,
+    HeaderIter, HeaderValue, Headers, Host, LimitedBytes, LimitedText, Mailbox, Message,
+    MessagePart, MessageRef, NamedHeaders, PartFlags, PartKind, PartRole, Protocol, Received,
+    Source, TextList, TlsVersion,
 };
 
 /// Declared Content-Transfer-Encoding of a part. The numeric values (0, 1,

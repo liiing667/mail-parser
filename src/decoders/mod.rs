@@ -10,6 +10,7 @@
 //! it directly for those, or [`crate::Encoding::decode`] to decode a body
 //! as the parser does.
 
+mod bounded;
 pub mod charsets;
 pub mod html;
 mod prefix;
@@ -19,6 +20,7 @@ use crate::Encoding;
 use encodify::{base64, qp};
 use std::borrow::Cow;
 
+pub(crate) use bounded::{BoundedBytes, BoundedText, bounded_text, bounded_transfer};
 pub(crate) use prefix::{Limit, TextPrefix, truncate};
 
 impl Encoding {

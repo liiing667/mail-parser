@@ -1,0 +1,9 @@
+From: Bob <bob@example.com>
+Subject: Bounded quoted-printable
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: quoted-printable
+
+Premi=C3=A8re ligne avec un =C3=A9 non ASCII=
+ et une suite sur le m=C3=Aame paragraphe.
+Deuxi=C3=A8me ligne, =E9chappement mal form=C3=A9 =ZZ =C3=A0 la fin.
+Troisi=C3=A8me ligne avec =C3=A0=C3=A4=C3=BC=C3=B6 des accents =21=
