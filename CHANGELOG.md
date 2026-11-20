@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file. This projec
 ## [1.0.2] - Unreleased
 
 ### Fixed
+- A comment glued to a bare address moved the local part into the display name, so `a(comment)@b.c` gave the address `@b.c` and `a@(comment)b.c` gave `a@`. The address now stays whole as `a@b.c`, with the comment as the display name, matching the angle-bracket form.
+- A bare address before `:` became a group name and disappeared from the mailboxes, so `alice@example.com: bob@example.com;` hid `alice@example.com`. A group now opens only when the name is not itself an address; both addresses stay mailboxes. Groups with real names are unchanged.
+- A group tail inside angle brackets became part of the address, so `<a@b.c;>` gave `a@b.c;`. The `;` now ends the address and the group, while a `;` inside a quoted local part or a URL stays.
+- `>`, `;` and `(` inside a quoted local part in angle brackets ended or split the address, so `<"a>b"@example.com>` gave the address `"a`. The quoted local part now keeps them, as long as the quoted part is closed later in the item.
+- `AddressList::contains` ignored a trailing dot nowhere: `alice@example.com.` did not match `alice@example.com` even though both name the same mailbox. The comparison now ignores one trailing dot in the domain, on top of the ASCII case-insensitive match. Parsed addresses keep their spelling.
 - An address without angle brackets whose local part is a quoted string, such as `"john smith"@example.com`, was read as the display name `john smith` and the address `@example.com` (#166).
 - A quoted local part inside angle brackets lost its backslashes, so `<"a\"b"@example.com>` gave the address `"a"b"@example.com`. A quoted-pair now stays in the address as written (#167).
 - `html_to_text` dropped the space after an element that started a line, so `<b>Hello</b> world` gave `Helloworld`, and put a stray space at the start of the next paragraph (#168).

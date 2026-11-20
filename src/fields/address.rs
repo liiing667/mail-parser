@@ -42,7 +42,7 @@ static STOPS: [u8; 256] = {
     table[b'<' as usize] = IN_NAME;
     table[b'@' as usize] = IN_NAME;
     table[b':' as usize] = IN_NAME;
-    table[b';' as usize] = IN_NAME;
+    table[b';' as usize] = IN_NAME | IN_ADDRESS;
     table[b'>' as usize] = IN_ADDRESS;
     table[b')' as usize] = IN_COMMENT;
     table
@@ -50,7 +50,7 @@ static STOPS: [u8; 256] = {
 
 static SIMPLE_NAME: ByteSet = ByteSet::with_marks(b"\n\r,;<\"(:=\\", b"@");
 static SIMPLE_QUOTED: ByteSet = ByteSet::new(b"\n\r\"\\=");
-static SIMPLE_ADDRESS: ByteSet = ByteSet::new(b"\n\r>\\(=");
+static SIMPLE_ADDRESS: ByteSet = ByteSet::new(b"\n\r>\\(=;\"");
 static QUOTED_LOCAL_PART: ByteSet = ByteSet::new(b"\n\"\\");
 
 fn is_blank(byte: u8) -> bool {
@@ -135,19 +135,29 @@ impl Item<'_> {
     }
 
     fn angle(&self, open: usize) -> Option<(Range<usize>, usize)> {
-        let close = self.angle_end(open)?;
+        let (close, after) = self.angle_end(open)?;
         let content = self.bytes().get(open..close)?;
         let lead = content.iter().position(|&byte| !is_blank(byte))?;
-        Some((open + lead..open + trimmed_len(content), close + 1))
+        Some((open + lead..open + trimmed_len(content), after))
     }
 
-    fn angle_end(&self, open: usize) -> Option<usize> {
+    fn angle_end(&self, open: usize) -> Option<(usize, usize)> {
         let bytes = self.bytes();
         let mut from = open;
         loop {
             let stop = self.find(&SIMPLE_ADDRESS, from)?;
             match bytes.get(stop) {
-                Some(b'>') => return Some(stop),
+                Some(b'>') => return Some((stop, stop + 1)),
+                Some(b';') => {
+                    let mut look = stop + 1;
+                    while matches!(bytes.get(look), Some(b' ' | b'\t')) {
+                        look += 1;
+                    }
+                    if bytes.get(look) == Some(&b'>') {
+                        return Some((stop, look + 1));
+                    }
+                    from = stop + 1;
+                }
                 Some(b'=')
                     if stop > open
                         && stop
@@ -290,6 +300,9 @@ struct Parser<'x> {
     address_quoted: bool,
     glued: bool,
     last_encoded: bool,
+    saw_at: bool,
+    spaced: bool,
+    token_joined: bool,
     name: Acc,
     mail: Acc,
     comment: Acc,
@@ -317,6 +330,9 @@ impl FieldCtx<'_> {
             address_quoted: false,
             glued: false,
             last_encoded: true,
+            saw_at: false,
+            spaced: false,
+            token_joined: false,
             name: Acc::EMPTY,
             mail: Acc::EMPTY,
             comment: Acc::EMPTY,
@@ -378,12 +394,14 @@ impl<'x> Parser<'x> {
                         pos += 1;
                     } else {
                         self.token_start = true;
+                        self.spaced = true;
                         pos += 2;
                     }
                 }
                 b' ' | b'\t' => {
                     let blanks = 1 + after.iter().take_while(|&&byte| is_blank(byte)).count();
                     self.token_start = true;
+                    self.spaced = true;
                     self.glued &= !self.escaped;
                     self.escaped = false;
                     if self.state == State::Quote {
@@ -427,12 +445,18 @@ impl<'x> Parser<'x> {
                 }
                 b'<' => {
                     self.email = false;
+                    self.saw_at = false;
                     self.add_token();
                     self.state = State::Address;
                     pos += 1;
                 }
+                b'>' if self.address_quoted && self.quoted_part_closes(pos) => {
+                    self.extend(pos, pos + 1);
+                    pos += 1;
+                }
                 b'>' => {
                     self.address_quoted = false;
+                    self.saw_at = false;
                     self.add_token();
                     self.state = State::Name;
                     pos += 1;
@@ -467,7 +491,16 @@ impl<'x> Parser<'x> {
                     pos += 1;
                 }
                 b'@' => {
+                    self.flush_word(self.raw.len());
+                    if self.token.is_none() && !self.spaced && self.mail.count == 0 {
+                        self.promote_name_to_mail();
+                    }
                     self.email = true;
+                    self.saw_at = true;
+                    self.extend(pos, pos + 1);
+                    pos += 1;
+                }
+                b'(' if !self.escaped && self.address_quoted => {
                     self.extend(pos, pos + 1);
                     pos += 1;
                 }
@@ -499,9 +532,35 @@ impl<'x> Parser<'x> {
                 b':' if !self.escaped => {
                     self.close_group(ctx);
                     self.add_token();
-                    self.open_group(ctx);
+                    if self.saw_at {
+                        self.add_address(ctx);
+                    } else {
+                        self.open_group(ctx);
+                    }
                     pos += 1;
                     item_start = true;
+                }
+                b';' if self.state == State::Address => {
+                    if self.address_quoted {
+                        self.extend(pos, pos + 1);
+                        pos += 1;
+                    } else {
+                        let mut look = pos + 1;
+                        while matches!(src.get(look), Some(b' ' | b'\t')) {
+                            look += 1;
+                        }
+                        if src.get(look) == Some(&b'>') {
+                            self.add_token();
+                            self.add_address(ctx);
+                            self.close_group(ctx);
+                            self.state = State::Name;
+                            pos = look + 1;
+                            item_start = true;
+                        } else {
+                            self.extend(pos, pos + 1);
+                            pos += 1;
+                        }
+                    }
                 }
                 b';' => {
                     self.add_token();
@@ -520,8 +579,34 @@ impl<'x> Parser<'x> {
 
     fn extend(&mut self, start: usize, end: usize) {
         self.escaped = false;
+        if self.token.is_none() {
+            self.token_joined = !self.spaced;
+        }
+        if matches!(self.state, State::Name | State::Address) {
+            self.spaced = false;
+        }
         self.token_start = false;
         self.token = Some((self.token.map_or(start, |(first, _)| first), end));
+    }
+
+    fn quoted_part_closes(&self, from: usize) -> bool {
+        let mut look = from + 1;
+        loop {
+            let Some(rest) = self.src.get(look..self.end) else {
+                return false;
+            };
+            let Some(rel) = rest
+                .iter()
+                .position(|&byte| matches!(byte, b'"' | b'>' | b'\n' | b'\\'))
+            else {
+                return false;
+            };
+            match rest[rel] {
+                b'"' => return true,
+                b'\\' => look += rel + 2,
+                _ => return false,
+            }
+        }
     }
 
     fn acc(&self, list: List) -> &Acc {
@@ -556,7 +641,7 @@ impl<'x> Parser<'x> {
             return;
         };
         let (list, separated) = match self.state {
-            State::Name if !self.email => (List::Name, true),
+            State::Name if !self.email && !(self.saw_at && self.token_joined) => (List::Name, true),
             State::Name | State::Address => (List::Mail, false),
             State::Quote => (List::Name, false),
             State::Comment => (List::Comment, true),
@@ -709,6 +794,24 @@ impl<'x> Parser<'x> {
         self.records = 0;
         self.raw.clear();
         self.text.clear();
+        self.saw_at = false;
+        self.spaced = false;
+        self.token_joined = false;
+    }
+
+    fn promote_name_to_mail(&mut self) {
+        if self.name.count == 0 || self.mail.count > 0 {
+            return;
+        }
+        self.mail = mem::replace(&mut self.name, Acc::EMPTY);
+        let end = self.records.min(self.raw.len());
+        let records = self.raw.get_mut(..end).unwrap_or_default();
+        let (records, _) = records.as_chunks_mut::<RECORD_LEN>();
+        for record in records {
+            if record[7] & 0b11 == List::Name as u8 {
+                record[7] = (record[7] & !0b11) | List::Mail as u8;
+            }
+        }
     }
 
     fn add_address(&mut self, ctx: &mut FieldCtx<'_>) {
@@ -900,7 +1003,7 @@ mod tests {
     #[test]
     fn address_fixtures() {
         let tests = load_tests("address.json");
-        assert_eq!(tests.len(), 141);
+        assert_eq!(tests.len(), 151);
         for (header, expected) in tests {
             assert_eq!(parse(&header), expected, "{header:?}");
             let crlf = header.replace("\r\n", "\n").replace('\n', "\r\n");

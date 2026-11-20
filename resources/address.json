@@ -2021,5 +2021,126 @@
         }
       }
     ]
+  },
+  {
+    "header": "a(comment)@b.c\n",
+    "expected": [
+      {
+        "mailbox": {
+          "name": "comment",
+          "address": "a@b.c"
+        }
+      }
+    ]
+  },
+  {
+    "header": "a@(comment)b.c\n",
+    "expected": [
+      {
+        "mailbox": {
+          "name": "comment",
+          "address": "a@b.c"
+        }
+      }
+    ]
+  },
+  {
+    "header": "g: a(comment)@b.c;\n",
+    "expected": [
+      {
+        "group": {
+          "name": "g",
+          "mailboxes": [
+            {
+              "name": "comment",
+              "address": "a@b.c"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "header": "<\"a>b\"@x.y>\n",
+    "expected": [
+      {
+        "mailbox": {
+          "name": null,
+          "address": "\"a>b\"@x.y"
+        }
+      }
+    ]
+  },
+  {
+    "header": "<\"a;b\"@x.y>\n",
+    "expected": [
+      {
+        "mailbox": {
+          "name": null,
+          "address": "\"a;b\"@x.y"
+        }
+      }
+    ]
+  },
+  {
+    "header": "<\"a(b\"@x.y>\n",
+    "expected": [
+      {
+        "mailbox": {
+          "name": null,
+          "address": "\"a(b\"@x.y"
+        }
+      }
+    ]
+  },
+  {
+    "header": "alice@x.test: bob@y.test;\n",
+    "expected": [
+      {
+        "mailbox": {
+          "name": null,
+          "address": "alice@x.test"
+        }
+      },
+      {
+        "mailbox": {
+          "name": null,
+          "address": "bob@y.test"
+        }
+      }
+    ]
+  },
+  {
+    "header": "<a@b.c;>\n",
+    "expected": [
+      {
+        "mailbox": {
+          "name": null,
+          "address": "a@b.c"
+        }
+      }
+    ]
+  },
+  {
+    "header": "<a@b.c; >\n",
+    "expected": [
+      {
+        "mailbox": {
+          "name": null,
+          "address": "a@b.c"
+        }
+      }
+    ]
+  },
+  {
+    "header": "a@b.c.\n",
+    "expected": [
+      {
+        "mailbox": {
+          "name": null,
+          "address": "a@b.c."
+        }
+      }
+    ]
   }
 ]

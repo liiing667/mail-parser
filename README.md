@@ -92,6 +92,11 @@ let Some(Address::Group(friends)) = to.iter().nth(1) else {
 assert_eq!(friends.name(), Some("Friends"));
 assert_eq!(friends.mailboxes().nth(1).and_then(|mailbox| mailbox.name()), Some("John Smîth"));
 
+// Address lookup compares identities: ASCII case-insensitive, and one
+// trailing dot in the domain is ignored.
+assert!(to.contains("JANE@example.com"));
+assert!(to.contains("jane@example.com."));
+
 assert_eq!(message.date().expect("a date").to_rfc3339(), "2021-11-20T14:22:01-08:00");
 assert_eq!(message.subject(), Some("Why not both importing AND exporting? ☺"));
 

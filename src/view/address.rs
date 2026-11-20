@@ -176,12 +176,15 @@ impl<'m> AddressList<'m> {
         })
     }
 
-    /// Whether any mailbox has this address (ASCII case-insensitive).
+    /// Whether any mailbox has this address. Addresses compare ASCII
+    /// case-insensitively, and one trailing dot in the domain is ignored,
+    /// so `alice@example.com.` and `alice@example.com` are the same
+    /// identity. The parsed addresses themselves keep their spelling.
     pub fn contains(&self, address: &str) -> bool {
         self.mailboxes().any(|mailbox| {
             mailbox
                 .address
-                .is_some_and(|a| a.eq_ignore_ascii_case(address))
+                .is_some_and(|candidate| address_eq(candidate, address))
         })
     }
 
@@ -189,6 +192,12 @@ impl<'m> AddressList<'m> {
     pub fn has_groups(&self) -> bool {
         self.items.iter().any(AddressEntry::is_group)
     }
+}
+
+fn address_eq(a: &str, b: &str) -> bool {
+    a.strip_suffix('.')
+        .unwrap_or(a)
+        .eq_ignore_ascii_case(b.strip_suffix('.').unwrap_or(b))
 }
 
 impl<'m> Mailbox<'m> {
