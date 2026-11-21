@@ -78,10 +78,7 @@ fn convert(input: &str, out: &mut String, mode: Mode) -> bool {
         pending_end: 0,
     };
     let mut in_tag = false;
-    let mut in_head = false;
-    let mut in_style = false;
-    let mut in_script = false;
-    let mut in_template = false;
+    let mut hidden_depth = [0usize; 6];
     let mut is_token_start = true;
     let mut is_after_space = false;
     let mut is_tag_close = false;
@@ -92,7 +89,10 @@ fn convert(input: &str, out: &mut String, mode: Mode) -> bool {
     let mut pos = 0;
 
     loop {
-        let hidden = in_head || in_style || in_script || in_template;
+        let hidden = hidden_depth[Tag::Head as usize] > 0
+            || hidden_depth[Tag::Style as usize] > 0
+            || hidden_depth[Tag::Script as usize] > 0
+            || hidden_depth[Tag::Template as usize] > 0;
         if in_tag {
             if tag_token_pos > NAMED_TAG {
                 pos += run_until(bytes, pos, &ATTRIBUTE_DELIMITERS);
@@ -149,10 +149,19 @@ fn convert(input: &str, out: &mut String, mode: Mode) -> bool {
                             is_after_space = false;
                             is_new_line = true;
                         }
-                        Some(Tag::Head) => in_head = !is_tag_close,
-                        Some(Tag::Style) => in_style = !is_tag_close,
-                        Some(Tag::Script) => in_script = !is_tag_close,
-                        Some(Tag::Template) => in_template = !is_tag_close,
+                        Some(
+                            hidden @ (Tag::Head
+                            | Tag::Style
+                            | Tag::Script
+                            | Tag::Template),
+                        ) => {
+                            let depth = &mut hidden_depth[hidden as usize];
+                            if is_tag_close {
+                                *depth = depth.saturating_sub(1);
+                            } else {
+                                *depth += 1;
+                            }
+                        }
                         Some(Tag::Break | Tag::Paragraph) | None => {}
                     }
                 }
@@ -198,11 +207,7 @@ fn convert(input: &str, out: &mut String, mode: Mode) -> bool {
                 pos += 1;
                 continue;
             }
-            b'&' if !in_tag && !is_token_start && !in_head => {
-                if in_style || in_script || in_template {
-                    pos += 1;
-                    continue;
-                }
+            b'&' if !in_tag && !is_token_start && !hidden => {
                 if sink.emit(token_start, token_end + 1, is_after_space && !is_new_line) {
                     return true;
                 }
@@ -210,11 +215,7 @@ fn convert(input: &str, out: &mut String, mode: Mode) -> bool {
                 is_token_start = true;
                 is_after_space = false;
             }
-            b';' if !in_tag && !is_token_start && !in_head => {
-                if in_style || in_script || in_template {
-                    pos += 1;
-                    continue;
-                }
+            b';' if !in_tag && !is_token_start && !hidden => {
                 if sink.emit(token_start, pos + 1, is_after_space && !is_new_line) {
                     return true;
                 }
@@ -241,7 +242,8 @@ fn convert(input: &str, out: &mut String, mode: Mode) -> bool {
         pos += 1;
     }
 
-    if !in_tag && !is_token_start && !(in_head || in_style || in_script || in_template) {
+    let still_hidden = hidden_depth.iter().any(|&depth| depth > 0);
+    if !in_tag && !is_token_start && !still_hidden {
         sink.emit(token_start, token_end + 1, is_after_space && !is_new_line);
     }
     sink.flush();

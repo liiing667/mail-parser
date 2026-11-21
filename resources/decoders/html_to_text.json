@@ -130,5 +130,25 @@
   {
     "input": "a<img alt=\"x>y",
     "expected": "a"
+  },
+  {
+    "input": "<script>var a=1;<script>alert(2)</script>leaked</script>after",
+    "expected": "after"
+  },
+  {
+    "input": "<style>.a{}<style>.b{}</style>leaked</style>after",
+    "expected": "after"
+  },
+  {
+    "input": "<head><head>x</head>leaked</head>after",
+    "expected": "after"
+  },
+  {
+    "input": "<template><template>x</template>leaked</template>after",
+    "expected": "after"
+  },
+  {
+    "input": "<script>outer<script>inner</script>still hidden</script>after",
+    "expected": "after"
   }
 ]
